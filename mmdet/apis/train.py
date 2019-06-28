@@ -39,9 +39,8 @@ def batch_processor(model, data, train_mode):
     losses = model(**data)
     loss, log_vars = parse_losses(losses)
 
-    outputs = dict(loss=loss,
-                   log_vars=log_vars,
-                   num_samples=len(data['img'].data))
+    outputs = dict(
+        loss=loss, log_vars=log_vars, num_samples=len(data['img'].data))
 
     return outputs
 
@@ -135,10 +134,11 @@ def build_optimizer(model, optimizer_cfg):
 def _dist_train(model, dataset, cfg, validate=False):
     # prepare data loaders
     data_loaders = [
-        build_dataloader(dataset,
-                         cfg.data.imgs_per_gpu,
-                         cfg.data.workers_per_gpu,
-                         dist=True)
+        build_dataloader(
+            dataset,
+            cfg.data.imgs_per_gpu,
+            cfg.data.workers_per_gpu,
+            dist=True)
     ]
     # put model on gpus
     model = MMDistributedDataParallel(model.cuda())
@@ -154,15 +154,19 @@ def _dist_train(model, dataset, cfg, validate=False):
     # register eval hooks
     if validate:
         val_dataset_cfg = cfg.data.val
+        eval_cfg = cfg.get('evaluation', {})
         if isinstance(model.module, RPN):
             # TODO: implement recall hooks for other datasets
-            runner.register_hook(CocoDistEvalRecallHook(val_dataset_cfg))
+            runner.register_hook(
+                CocoDistEvalRecallHook(val_dataset_cfg, **eval_cfg))
         else:
             dataset_type = getattr(datasets, val_dataset_cfg.type)
             if issubclass(dataset_type, datasets.CocoDataset):
-                runner.register_hook(CocoDistEvalmAPHook(val_dataset_cfg))
+                runner.register_hook(
+                    CocoDistEvalmAPHook(val_dataset_cfg, **eval_cfg))
             else:
-                runner.register_hook(DistEvalmAPHook(val_dataset_cfg))
+                runner.register_hook(
+                    DistEvalmAPHook(val_dataset_cfg, **eval_cfg))
 
     if cfg.resume_from:
         runner.resume(cfg.resume_from)
@@ -174,11 +178,12 @@ def _dist_train(model, dataset, cfg, validate=False):
 def _non_dist_train(model, dataset, cfg, validate=False):
     # prepare data loaders
     data_loaders = [
-        build_dataloader(dataset,
-                         cfg.data.imgs_per_gpu,
-                         cfg.data.workers_per_gpu,
-                         cfg.gpus,
-                         dist=False)
+        build_dataloader(
+            dataset,
+            cfg.data.imgs_per_gpu,
+            cfg.data.workers_per_gpu,
+            cfg.gpus,
+            dist=False)
     ]
     # put model on gpus
     model = MMDataParallel(model, device_ids=range(cfg.gpus)).cuda()

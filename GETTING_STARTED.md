@@ -27,7 +27,7 @@ python tools/test.py ${CONFIG_FILE} ${CHECKPOINT_FILE} [--out ${RESULT_FILE}] [-
 Optional arguments:
 - `RESULT_FILE`: Filename of the output results in pickle format. If not specified, the results will not be saved to a file.
 - `EVAL_METRICS`: Items to be evaluated on the results. Allowed values are: `proposal_fast`, `proposal`, `bbox`, `segm`, `keypoints`.
-- `--show`: If specified, detection results will be ploted on the images and shown in a new window. Only applicable for single GPU testing.
+- `--show`: If specified, detection results will be ploted on the images and shown in a new window. (Only applicable for single GPU testing.)
 
 Examples:
 
@@ -46,7 +46,7 @@ python tools/test.py configs/faster_rcnn_r50_fpn_1x.py \
 ```shell
 python tools/test.py configs/mask_rcnn_r50_fpn_1x.py \
     checkpoints/mask_rcnn_r50_fpn_1x_20181010-069fa190.pth \
-    --out results.pkl --eval bbox mask
+    --out results.pkl --eval bbox segm
 ```
 
 3. Test Mask R-CNN with 8 GPUs, and evaluate the bbox and mask AP.
@@ -54,7 +54,7 @@ python tools/test.py configs/mask_rcnn_r50_fpn_1x.py \
 ```shell
 ./tools/dist_test.sh configs/mask_rcnn_r50_fpn_1x.py \
     checkpoints/mask_rcnn_r50_fpn_1x_20181010-069fa190.pth \
-    8 --out results.pkl --eval bbox mask
+    8 --out results.pkl --eval bbox segm
 ```
 
 ### High-level APIs for testing images.
@@ -62,28 +62,23 @@ python tools/test.py configs/mask_rcnn_r50_fpn_1x.py \
 Here is an example of building the model and test given images.
 
 ```python
-import mmcv
-from mmcv.runner import load_checkpoint
-from mmdet.models import build_detector
-from mmdet.apis import inference_detector, show_result
+from mmdet.apis import init_detector, inference_detector, show_result
 
-cfg = mmcv.Config.fromfile('configs/faster_rcnn_r50_fpn_1x.py')
-cfg.model.pretrained = None
+config_file = 'configs/faster_rcnn_r50_fpn_1x.py'
+checkpoint_file = 'checkpoints/faster_rcnn_r50_fpn_1x_20181010-3d1b3351.pth'
 
-# construct the model and load checkpoint
-model = build_detector(cfg.model, test_cfg=cfg.test_cfg)
-_ = load_checkpoint(model, 'https://s3.ap-northeast-2.amazonaws.com/open-mmlab/mmdetection/models/faster_rcnn_r50_fpn_1x_20181010-3d1b3351.pth')
+# build the model from a config file and a checkpoint file
+model = init_detector(config_file, checkpoint_file, device='cuda:0')
 
-# test a single image
-img = mmcv.imread('test.jpg')
-result = inference_detector(model, img, cfg)
-show_result(img, result)
+# test a single image and show the results
+img = 'test.jpg'  # or img = mmcv.imread(img), which will only load it once
+result = inference_detector(model, img)
+show_result(img, result, model.CLASSES)
 
-# test a list of images
+# test a list of images and write the results to image files
 imgs = ['test1.jpg', 'test2.jpg']
-for i, result in enumerate(inference_detector(model, imgs, cfg, device='cuda:0')):
-    print(i, imgs[i])
-    show_result(imgs[i], result)
+for i, result in enumerate(inference_detector(model, imgs)):
+    show_result(imgs[i], result, model.CLASSES, out_file='result_{}.jpg'.format(i))
 ```
 
 
@@ -95,9 +90,8 @@ which uses `MMDistributedDataParallel` and `MMDataParallel` respectively.
 All outputs (log files and checkpoints) will be saved to the working directory,
 which is specified by `work_dir` in the config file.
 
-**\*Important\***: The default learning rate in config files is for 8 GPUs.
-If you use less or more than 8 GPUs, you need to set the learning rate proportional
-to the GPU num, e.g., 0.01 for 4 GPUs and 0.04 for 16 GPUs.
+**\*Important\***: The default learning rate in config files is for 8 GPUs and 2 img/gpu (batch size = 8*2 = 16).
+According to the [Linear Scaling Rule](https://arxiv.org/abs/1706.02677), you need to set the learning rate proportional to the batch size if you use different GPUs or images per GPU, e.g., lr=0.01 for 4 GPUs * 2 img/gpu and lr=0.08 for 16 GPUs * 4 img/gpu.
 
 ### Train with a single GPU
 
@@ -115,9 +109,13 @@ If you want to specify the working directory in the command, you can add an argu
 
 Optional arguments are:
 
-- `--validate` (recommended): Perform evaluation at every k (default=1) epochs during the training.
+- `--validate` (**strongly recommended**): Perform evaluation at every k (default value is 1, which can be modified like `this`[configs/mask_rcnn_r50_fpn_1x.py#L174]) epochs during the training.
 - `--work_dir ${WORK_DIR}`: Override the working directory specified in the config file.
 - `--resume_from ${CHECKPOINT_FILE}`: Resume from a previous checkpoint file.
+
+Difference between `resume_from` and `load_from`:
+`resume_from` loads both the model weights and optimizer status, and the epoch is also inherited from the specified checkpoint. It is usually used for resuming the training process that is interrupted accidentally.
+`load_from` only loads the model weights and the training epoch starts from 0. It is usually used for finetuning.
 
 ### Train with multiple machines
 
@@ -188,9 +186,9 @@ Here is an example.
         'height': 720,
         'ann': {
             'bboxes': <np.ndarray, float32> (n, 4),
-            'labels': <np.ndarray, float32> (n, ),
+            'labels': <np.ndarray, int64> (n, ),
             'bboxes_ignore': <np.ndarray, float32> (k, 4),
-            'labels_ignore': <np.ndarray, float32> (k, ) (optional field)
+            'labels_ignore': <np.ndarray, int64> (k, ) (optional field)
         }
     },
     ...

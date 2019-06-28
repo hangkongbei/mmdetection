@@ -116,3 +116,9 @@ cuda
 down
 imgResult
 work_dirs
+
+# custom
+*.pkl
+*.pkl.json
+*.log.json
+work_dirs/
