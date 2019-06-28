@@ -111,7 +111,7 @@ data
 .idea
 mydata
 checkpoints
-mytest.py
+#mytest.py
 cuda
 down
 imgResult
